@@ -1,0 +1,77 @@
+
+<!DOCTYPE html>
+<html>
+<head>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Li-Fi Transmitter</title>
+<style>
+body {
+  background: #101820;
+  color: white;
+  font-family: Arial;
+  text-align: center;
+  padding: 25px;
+}
+button {
+  width: 90%;
+  padding: 16px;
+  margin: 10px;
+  border: none;
+  border-radius: 10px;
+  font-size: 18px;
+}
+</style>
+</head>
+<body>
+
+<h1>Li-Fi Transmitter</h1>
+<p id="status">Ready to connect</p>
+
+<button onclick="startCamera()">Enable Flashlight</button>
+<button onclick="setTorch(true)">Flashlight ON</button>
+<button onclick="setTorch(false)">Flashlight OFF</button>
+
+<script>
+let track;
+
+async function startCamera() {
+  try {
+    const stream =
+      await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: "environment" }
+      });
+
+    track = stream.getVideoTracks()[0];
+
+    if (!track.getCapabilities().torch) {
+      status.innerText = "Torch not supported";
+      return;
+    }
+
+    status.innerText = "Torch supported!";
+  } catch (e) {
+    status.innerText = e.message;
+  }
+}
+
+async function setTorch(value) {
+  if (!track) {
+    alert("Enable flashlight first");
+    return;
+  }
+
+  try {
+    await track.applyConstraints({
+      advanced: [{ torch: value }]
+    });
+
+    status.innerText = value ?
+      "Flashlight ON" : "Flashlight OFF";
+  } catch (e) {
+    status.innerText = e.message;
+  }
+}
+</script>
+
+</body>
+</html>
