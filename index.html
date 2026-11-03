@@ -2,337 +2,250 @@
 <!DOCTYPE html>
 <html>
 <head>
-<meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-
 <title>Li-Fi Text Transmitter</title>
 
 <style>
 body {
+  font-family: Arial, sans-serif;
   background: #101820;
   color: white;
-  font-family: Arial, sans-serif;
   text-align: center;
-  padding: 20px;
+  padding: 25px;
 }
-
-h1 {
-  color: #55d6ff;
-}
-
-.card {
-  background: #1b2935;
-  padding: 20px;
-  border-radius: 15px;
+.container {
   max-width: 420px;
   margin: auto;
+  background: #1d2b36;
+  padding: 25px;
+  border-radius: 15px;
 }
-
 input {
-  width: 95%;
-  box-sizing: border-box;
-  padding: 15px;
+  width: 90%;
+  padding: 14px;
   font-size: 18px;
   border-radius: 8px;
   border: none;
   margin: 15px 0;
-  text-transform: uppercase;
 }
-
 button {
   width: 95%;
   padding: 15px;
   margin: 8px;
-  border: none;
-  border-radius: 9px;
   font-size: 17px;
   font-weight: bold;
-  color: white;
+  border: none;
+  border-radius: 8px;
+  background: #00c896;
+  color: #101820;
 }
-
-#connect {
-  background: #2980b9;
+button:disabled {
+  opacity: 0.45;
 }
-
-#send {
-  background: #16a085;
-}
-
-#send:disabled {
-  background: #555;
-}
-
 #status {
-  color: #55d6ff;
-  font-weight: bold;
+  margin-top: 20px;
+  line-height: 1.5;
+  color: #8be9fd;
 }
-
-#progress {
-  color: #aab7c4;
-  overflow-wrap: anywhere;
-}
-
-.small {
-  color: #aab7c4;
-  font-size: 13px;
+small {
+  color: #bbb;
 }
 </style>
 </head>
 
 <body>
+<div class="container">
 
-<div class="card">
+<h2>LI-FI TRANSMITTER</h2>
+<p>Send text using your phone flashlight</p>
 
-<h1>Li-Fi Transmitter</h1>
+<input id="message"
+ maxlength="8"
+ placeholder="Enter message (1-8 characters)"
+ autocomplete="off">
 
-<p>Smartphone to Arduino Communication</p>
-
-<button id="connect" onclick="startCamera()">
+<button id="enable" onclick="enableTorch()">
 ENABLE FLASHLIGHT
 </button>
-
-<p id="status">Status: Not connected</p>
-
-<input
-  id="message"
-  type="text"
-  maxlength="8"
-  value="HELLO"
-  placeholder="Enter message"
->
 
 <button id="send" onclick="transmit()" disabled>
 TRANSMIT MESSAGE
 </button>
 
-<p id="progress">Waiting for message</p>
+<button onclick="stopTorch()">
+STOP
+</button>
 
-<p class="small">
-Maximum 8 English characters<br>
-Transmission speed: 0.5 bits per second
-</p>
+<p id="status">Connect your flashlight first.</p>
+
+<small>Keep your phone pointed at the LDR.</small>
 
 </div>
 
 <script>
-
+let stream = null;
 let track = null;
-let torchState = null;
-let sending = false;
+let torchState = false;
+let busy = false;
 
 const BIT_TIME = 2000;
-const START_ON = 1800;
-const START_OFF = 1800;
+const START_TIME = 3000;
+const SYNC_TIME = 3000;
+const END_TIME = 3000;
+
+const statusText = document.getElementById("status");
+const sendButton = document.getElementById("send");
 
 function sleep(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
 
-async function setTorch(value) {
-
-  if (!track) {
-    throw new Error("Enable flashlight first");
-  }
-
-  if (torchState === value) return;
-
-  await track.applyConstraints({
-    advanced: [{ torch: value }]
-  });
-
-  torchState = value;
+async function waitUntil(target) {
+  const remaining = target - performance.now();
+  if (remaining > 0) await sleep(remaining);
 }
 
-// Connect phone flashlight
-async function startCamera() {
+async function setTorch(on) {
+  if (!track) throw new Error("Flashlight not enabled");
 
+  if (torchState === on) return;
+
+  await track.applyConstraints({
+    advanced: [{ torch: on }]
+  });
+
+  torchState = on;
+}
+
+async function enableTorch() {
   try {
+    statusText.textContent = "Requesting camera permission...";
 
-    const stream =
-      await navigator.mediaDevices.getUserMedia({
-        video: {
-          facingMode: "environment"
-        }
-      });
+    stream = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode: "environment" }
+    });
 
     track = stream.getVideoTracks()[0];
 
-    const capabilities = track.getCapabilities();
-
-    if (!capabilities.torch) {
-
-      document.getElementById("status").innerText =
-        "Torch not supported";
-
-      track.stop();
-      track = null;
-
-      return;
-    }
-
     await setTorch(false);
 
-    document.getElementById("status").innerText =
-      "Transmitter ready!";
-
-    document.getElementById("send").disabled = false;
+    sendButton.disabled = false;
+    statusText.textContent = "Flashlight ready. Enter your message.";
 
   } catch (error) {
-
-    document.getElementById("status").innerText =
-      "Error: " + error.message;
+    statusText.textContent =
+      "Error: " + error.message +
+      ". Allow camera access and use Chrome on Android.";
   }
 }
 
-// Wait for an absolute clock deadline
-async function waitUntil(deadline) {
-
-  while (true) {
-
-    const remaining = deadline - performance.now();
-
-    if (remaining <= 0) break;
-
-    await sleep(Math.min(remaining, 100));
-  }
-}
-
-// Convert byte to 8 binary bits
-function byteToBits(value) {
-
-  let bits = [];
-
-  for (let i = 7; i >= 0; i--) {
-
-    bits.push((value >> i) & 1);
-  }
-
-  return bits;
-}
-
-// Transmit message
 async function transmit() {
 
-  if (!track || sending) return;
+  if (!track || busy) return;
 
   const message =
-    document.getElementById("message").value.trim().toUpperCase();
+    document.getElementById("message").value.trim();
 
-  if (
-    message.length < 1 ||
-    message.length > 8 ||
-    !/^[\x20-\x7E]+$/.test(message)
-  ) {
-
-    alert("Enter 1 to 8 basic English characters.");
+  if (message.length < 1 || message.length > 8) {
+    statusText.textContent =
+      "Enter between 1 and 8 characters.";
     return;
   }
 
-  sending = true;
+  if (!/^[\x20-\x7E]+$/.test(message)) {
+    statusText.textContent =
+      "Use English letters, numbers or basic symbols.";
+    return;
+  }
 
-  const sendButton =
-    document.getElementById("send");
-
+  busy = true;
   sendButton.disabled = true;
 
   try {
 
-    document.getElementById("status").innerText =
-      "Sending start signal...";
+    statusText.textContent = "Sending start marker...";
 
-    document.getElementById("progress").innerText =
-      "Please keep phone facing the LDR.";
-
-    // Start marker
+    // START MARKER
     await setTorch(true);
-    await sleep(START_ON);
+    await sleep(START_TIME);
 
-    // Synchronization gap
+    // SYNCHRONIZATION GAP
     await setTorch(false);
-    await sleep(START_OFF);
+    await sleep(SYNC_TIME);
 
-    // Prepare message bytes:
-    // First byte = message length
-    // Remaining bytes = ASCII characters
+    // Convert message to bytes
+    const bytes = [
+      message.length,
+      ...Array.from(message).map(c => c.charCodeAt(0))
+    ];
 
-    let bytes = [message.length];
+    statusText.textContent = "Transmitting message...";
 
-    for (let i = 0; i < message.length; i++) {
-
-      bytes.push(message.charCodeAt(i));
-    }
-
-    // Convert entire message into binary bits
-    let bits = [];
+    // Send each byte, most significant bit first
+    let slotStart = performance.now();
 
     for (const value of bytes) {
 
-      bits.push(...byteToBits(value));
+      for (let bit = 7; bit >= 0; bit--) {
+
+        const bitValue = (value >> bit) & 1;
+
+        await setTorch(bitValue === 1);
+
+        slotStart += BIT_TIME;
+        await waitUntil(slotStart);
+      }
     }
 
-    document.getElementById("status").innerText =
-      "Transmitting message...";
-
-    // Send first bit and establish a fixed clock
-    await setTorch(bits[0] === 1);
-
-    const transmissionStart = performance.now();
-
-    document.getElementById("progress").innerText =
-      "Sending bit 1 of " + bits.length;
-
-    // Send remaining bits using fixed deadlines
-    for (let i = 1; i < bits.length; i++) {
-
-      await waitUntil(
-        transmissionStart + i * BIT_TIME
-      );
-
-      await setTorch(bits[i] === 1);
-
-      document.getElementById("progress").innerText =
-        "Sending bit " + (i + 1) +
-        " of " + bits.length;
-    }
-
-    // Keep final bit stable for its full slot
-    await waitUntil(
-      transmissionStart + bits.length * BIT_TIME
-    );
+    // END MARKER
+    await setTorch(true);
+    await sleep(END_TIME);
 
     await setTorch(false);
 
-    document.getElementById("status").innerText =
-      "Transmission complete!";
-
-    document.getElementById("progress").innerText =
-      "Message sent: " + message;
+    statusText.textContent =
+      "Transmission completed: " + message;
 
   } catch (error) {
 
-    document.getElementById("status").innerText =
+    statusText.textContent =
       "Transmission error: " + error.message;
-
-  } finally {
 
     try {
       await setTorch(false);
-    } catch (error) {}
+    } catch (e) {}
 
-    sending = false;
+  } finally {
+
+    busy = false;
     sendButton.disabled = false;
   }
 }
 
-// Turn flashlight off when page is closed
-window.addEventListener("pagehide", () => {
+async function stopTorch() {
 
-  if (track) {
-    track.stop();
+  try {
+    busy = false;
+
+    if (track) {
+      await setTorch(false);
+    }
+
+    if (stream) {
+      stream.getTracks().forEach(t => t.stop());
+    }
+
+    track = null;
+    stream = null;
+    torchState = false;
+
+    sendButton.disabled = true;
+    statusText.textContent = "Flashlight stopped.";
+
+  } catch (error) {
+    statusText.textContent = error.message;
   }
-
-});
-
+}
 </script>
 
 </body>
